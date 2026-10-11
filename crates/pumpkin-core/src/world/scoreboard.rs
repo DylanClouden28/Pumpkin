@@ -826,6 +826,14 @@ pub struct Team {
     pub players: Vec<String>,
 }
 
+impl Team {
+    /// Vanilla `PlayerTeam.isAllowFriendlyFire`, flag `0x01` of the packed options.
+    #[must_use]
+    pub const fn is_allow_friendly_fire(&self) -> bool {
+        self.options & 0x01 != 0
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BedrockSortOrder {
     Ascending,

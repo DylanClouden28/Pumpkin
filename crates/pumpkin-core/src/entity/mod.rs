@@ -129,6 +129,14 @@ impl dyn EntityBase + '_ {
             || self.considers_entity_as_ally(other)
             || other.considers_entity_as_ally(self)
     }
+
+    /// Vanilla `Entity.doTeamsAllowDamage`: teammates only hurt each other with friendly fire on.
+    #[must_use]
+    pub fn do_teams_allow_damage(&self, other: &dyn EntityBase) -> bool {
+        self.get_team().is_none_or(|team| {
+            other.get_team_name().as_ref() != Some(&team.name) || team.is_allow_friendly_fire()
+        })
+    }
 }
 
 pub trait EntityBase: Send + Sync + std::any::Any {
