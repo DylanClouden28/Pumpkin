@@ -4,6 +4,7 @@ use super::{
 use crate::entity::EntityBase;
 use crate::entity::ai::pathfinder::path::Path;
 use crate::entity::boss::ender_dragon::EnderDragonEntity;
+use crate::entity::mob::Mob;
 use crate::entity::player::Player;
 use pumpkin_util::math::vector3::Vector3;
 use std::sync::{Arc, Mutex};
@@ -128,5 +129,13 @@ impl Phase for HoldingPatternPhase {
 
     fn get_fly_target_location(&self) -> Option<Vector3<f64>> {
         self.state().target_location
+    }
+
+    fn on_crystal_destroyed(&self, dragon: &EnderDragonEntity, player: Option<&Arc<Player>>) {
+        if let Some(player) = player
+            && dragon.can_attack(player.as_ref())
+        {
+            dragon.strafe_player(player);
+        }
     }
 }

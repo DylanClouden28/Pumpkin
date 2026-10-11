@@ -44,6 +44,7 @@ const FLAP_SPEED: f32 = 0.2;
 const SITTING_ALLOWED_DAMAGE_PERCENTAGE: f32 = 0.25;
 const CRYSTAL_HEAL_INTERVAL: i32 = 10;
 const CRYSTAL_SEARCH_RANGE: f64 = 32.0;
+const CRYSTAL_DESTROYED_DAMAGE: f32 = 10.0;
 /// Width and height of the head, neck, body, three tail parts and two wings (`EnderDragon` constructor).
 const PART_SIZES: [(f32, f32); 8] = [
     (1.0, 1.0),
@@ -367,6 +368,45 @@ impl EnderDragonEntity {
         world.get_nearest_player(pos, f64::INFINITY, |player| {
             predicate.test(&world, Some(self), player.as_ref())
         })
+    }
+
+    /// Vanilla `EnderDragon.onCrystalDestroyed`.
+    pub fn on_crystal_destroyed(
+        &self,
+        crystal: &dyn EntityBase,
+        crystal_pos: Vector3<f64>,
+        attacker: Option<Arc<Player>>,
+    ) {
+        let world = self.mob_entity.living_entity.entity.world.load();
+        // Vanilla `CRYSTAL_DESTROY_TARGETING` has no targeter, so its range is never applied.
+        let predicate = TargetPredicate::create_attackable();
+        let player = attacker.or_else(|| {
+            world.get_nearest_player(crystal_pos, f64::INFINITY, |player| {
+                predicate.test(&world, None, player.as_ref())
+            })
+        });
+        if self
+            .nearest_crystal
+            .compare_exchange(Some(crystal.get_entity().entity_id), None)
+            .is_ok()
+        {
+            let cause = player.as_ref().map(|p| p.as_ref() as &dyn EntityBase);
+            let damage_type = if cause.is_some() {
+                DamageType::PLAYER_EXPLOSION
+            } else {
+                DamageType::EXPLOSION
+            };
+            self.hurt(
+                HEAD,
+                CRYSTAL_DESTROYED_DAMAGE,
+                damage_type,
+                None,
+                Some(crystal),
+                cause,
+            );
+        }
+        self.current_phase()
+            .on_crystal_destroyed(self, player.as_ref());
     }
 
     /// Vanilla `DragonHoldingPatternPhase.strafePlayer`.

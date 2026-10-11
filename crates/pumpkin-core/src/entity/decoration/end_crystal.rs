@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use crate::entity::boss::ender_dragon::EnderDragonEntity;
 use crate::entity::{Entity, EntityBase, living::LivingEntity};
 use pumpkin_data::{
     damage::DamageType,
@@ -80,11 +81,15 @@ impl EntityBase for EndCrystalEntity {
         _amount: f32,
         damage_type: DamageType,
         _position: Option<Vector3<f64>>,
-        _source: Option<&dyn EntityBase>,
-        _cause: Option<&dyn EntityBase>,
+        source: Option<&dyn EntityBase>,
+        cause: Option<&dyn EntityBase>,
     ) -> bool {
         if self.is_invulnerable() {
             return false;
+        }
+        // Vanilla destroys a crystal once, so its own explosion doesn't hurt the dragon again.
+        if self.entity.is_removed() {
+            return true;
         }
 
         self.entity.remove();
@@ -94,10 +99,20 @@ impl EntityBase for EndCrystalEntity {
             world.explode(pos, 6.0, crate::world::ExplosionInteraction::Block);
         }
 
-        if let Some(ref fight_mutex) = world.dragon_fight
-            && let Ok(mut fight) = fight_mutex.lock()
+        let dragon_uuid = world.dragon_fight.as_ref().and_then(|fight_mutex| {
+            fight_mutex
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .on_crystal_destroyed(&world, self.entity.entity_uuid)
+        });
+        if let Some(dragon_uuid) = dragon_uuid
+            && let Some(dragon) = world.get_entity_by_uuid(dragon_uuid)
+            && let Some(dragon) = dragon.cast_any().downcast_ref::<EnderDragonEntity>()
         {
-            fight.on_crystal_destroyed(&world, self.entity.entity_uuid);
+            let attacker = cause
+                .or(source)
+                .and_then(|e| world.get_player_by_id(e.get_entity().entity_id));
+            dragon.on_crystal_destroyed(self, self.entity.block_pos.load().0.to_f64(), attacker);
         }
 
         true

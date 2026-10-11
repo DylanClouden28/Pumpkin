@@ -555,11 +555,14 @@ impl DragonFight {
 
     // ── Crystal destruction ───────────────────────────────────────────────────
 
-    pub fn on_crystal_destroyed(&mut self, world: &Arc<World>, crystal_uuid: Uuid) {
+    /// The dragon to notify (vanilla `onCrystalDestroyed`) once the fight lock is released.
+    pub fn on_crystal_destroyed(&mut self, world: &Arc<World>, crystal_uuid: Uuid) -> Option<Uuid> {
         if self.respawn_stage.is_some() && self.respawn_crystals.contains(&crystal_uuid) {
             self.abort_respawn_sequence(world);
+            None
         } else {
             self.update_crystal_count(world);
+            self.dragon_uuid
         }
     }
 

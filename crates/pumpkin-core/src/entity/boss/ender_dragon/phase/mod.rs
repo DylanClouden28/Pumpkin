@@ -1,8 +1,10 @@
 use crate::entity::ai::pathfinder::path::Path;
 use crate::entity::boss::ender_dragon::{CENTER_RING_START, EnderDragonEntity, INNER_RING_START};
+use crate::entity::player::Player;
 use pumpkin_data::damage::DamageType;
 use pumpkin_util::math::vector3::Vector3;
 use std::ops::RangeInclusive;
+use std::sync::Arc;
 
 mod charging_player;
 mod dying;
@@ -50,6 +52,7 @@ pub trait Phase: Send + Sync {
     fn on_hurt(&self, _damage_type: DamageType, damage: f32) -> f32 {
         damage
     }
+    fn on_crystal_destroyed(&self, _dragon: &EnderDragonEntity, _player: Option<&Arc<Player>>) {}
 }
 
 /// Vanilla `EnderDragonPhase` ids, which the client reads from the dragon's phase data.
