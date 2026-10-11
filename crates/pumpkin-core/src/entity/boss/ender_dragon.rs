@@ -42,6 +42,8 @@ pub const NODE_COUNT: usize = 24;
 const DEATH_TIMER_MAX: i32 = 200;
 const FLAP_SPEED: f32 = 0.2;
 const SITTING_ALLOWED_DAMAGE_PERCENTAGE: f32 = 0.25;
+const CRYSTAL_HEAL_INTERVAL: i32 = 10;
+const CRYSTAL_SEARCH_RANGE: f64 = 32.0;
 /// Width and height of the head, neck, body, three tail parts and two wings (`EnderDragon` constructor).
 const PART_SIZES: [(f32, f32); 8] = [
     (1.0, 1.0),
@@ -137,6 +139,8 @@ pub struct EnderDragonEntity {
     pub yaw_rot_accel: AtomicCell<f32>,
 
     nodes: Mutex<Option<[Node; NODE_COUNT]>>,
+    /// Entity id of the crystal healing the dragon, vanilla `nearestCrystal`.
+    pub nearest_crystal: AtomicCell<Option<i32>>,
 }
 
 impl EnderDragonEntity {
@@ -185,6 +189,7 @@ impl EnderDragonEntity {
             phase: AtomicCell::new(EnderDragonPhase::Hover),
             yaw_rot_accel: AtomicCell::new(0.0),
             nodes: Mutex::new(None),
+            nearest_crystal: AtomicCell::new(None),
         })
     }
 
@@ -645,29 +650,44 @@ impl EnderDragonEntity {
         }
     }
 
-    fn tick_crystal_healing(&self) {
-        let world = self.mob_entity.living_entity.entity.world.load();
-        let pos = self.mob_entity.living_entity.entity.pos.load();
-
-        let mut nearest_crystal = None;
-        let mut min_dist_sq = 1024.0; // 32 blocks
-
-        for entity in world.entities.load().iter() {
-            if entity.get_entity().entity_type == &EntityType::END_CRYSTAL {
-                let crystal_pos = entity.get_entity().pos.load();
-                let dist_sq = pos.squared_distance_to_vec(&crystal_pos);
-                if dist_sq < min_dist_sq {
-                    min_dist_sq = dist_sq;
-                    nearest_crystal = Some(entity.clone());
+    /// Vanilla `checkCrystals`.
+    fn check_crystals(&self) {
+        let entity = &self.mob_entity.living_entity.entity;
+        let world = entity.world.load();
+        let mut nearest = self.nearest_crystal.load();
+        let mut heal = false;
+        if let Some(id) = nearest {
+            match world.get_entity_by_id(id) {
+                Some(crystal) if !crystal.get_entity().is_removed() => {
+                    let living = &self.mob_entity.living_entity;
+                    heal = entity.age.load(Ordering::Relaxed) % CRYSTAL_HEAL_INTERVAL == 0
+                        && living.health.load() < living.get_max_health();
                 }
+                _ => nearest = None,
             }
         }
 
-        if let Some(_crystal) = nearest_crystal {
-            let living = &self.mob_entity.living_entity;
-            if living.health.load() < living.get_max_health() {
-                living.heal(1.0);
-            }
+        if rand::random_range(0..10) == 0 {
+            let search = entity.bounding_box.load().expand(
+                CRYSTAL_SEARCH_RANGE,
+                CRYSTAL_SEARCH_RANGE,
+                CRYSTAL_SEARCH_RANGE,
+            );
+            let pos = entity.pos.load();
+            nearest = world
+                .get_entities_at_box(&search)
+                .into_iter()
+                .filter(|e| e.get_entity().entity_type == &EntityType::END_CRYSTAL)
+                .min_by(|a, b| {
+                    let da = a.get_entity().pos.load().squared_distance_to_vec(&pos);
+                    let db = b.get_entity().pos.load().squared_distance_to_vec(&pos);
+                    da.total_cmp(&db)
+                })
+                .map(|e| e.get_entity().entity_id);
+        }
+        self.nearest_crystal.store(nearest);
+        if heal {
+            self.mob_entity.living_entity.heal(1.0);
         }
     }
 
@@ -919,7 +939,7 @@ impl EnderDragonEntity {
             return;
         }
         self.update_flap_time();
-        self.tick_crystal_healing();
+        self.check_crystals();
 
         let entity = &living.entity;
         entity.yaw.store(wrap_degrees(entity.yaw.load()));
