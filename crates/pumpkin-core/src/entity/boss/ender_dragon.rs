@@ -6,6 +6,7 @@ use pumpkin_data::tag::{self, Taggable};
 use pumpkin_data::tracked_data;
 use pumpkin_data::world::WorldEvent;
 use pumpkin_data::{Block, BlockStateId};
+use pumpkin_nbt::compound::NbtCompound;
 use pumpkin_util::math::boundingbox::{BoundingBox, EntityDimensions};
 use pumpkin_util::math::position::BlockPos;
 use pumpkin_util::math::vector3::Vector3;
@@ -58,6 +59,9 @@ const BODY: usize = 2;
 const TAIL1: usize = 3;
 const WING1: usize = 6;
 const WING2: usize = 7;
+const DRAGON_PHASE_KEY: &str = "DragonPhase";
+const DRAGON_DEATH_TIME_KEY: &str = "DragonDeathTime";
+const SITTING_DAMAGE_RECEIVED_KEY: &str = "sitting_damage_received";
 pub const INNER_RING_START: usize = 12;
 pub const CENTER_RING_START: usize = 20;
 /// Lowest node height, vanilla `findClosestNode`.
@@ -1030,5 +1034,27 @@ impl Mob for EnderDragonEntity {
         cause: Option<&dyn EntityBase>,
     ) -> bool {
         self.hurt(BODY, amount, damage_type, position, source, cause)
+    }
+
+    fn mob_write_nbt(&self, nbt: &mut NbtCompound) {
+        nbt.put_int(DRAGON_PHASE_KEY, self.current_phase_type().network_id());
+        nbt.put_int(DRAGON_DEATH_TIME_KEY, self.dragon_death_time.load());
+        nbt.put_float(
+            SITTING_DAMAGE_RECEIVED_KEY,
+            self.sitting_damage_received.load(),
+        );
+    }
+
+    fn mob_read_nbt(&self, nbt: &NbtCompound) {
+        // Vanilla `EnderDragonPhase.getById` turns an unknown id into the holding pattern.
+        if let Some(id) = nbt.get_int(DRAGON_PHASE_KEY) {
+            self.set_phase(
+                EnderDragonPhase::from_id(id).unwrap_or(EnderDragonPhase::HoldingPattern),
+            );
+        }
+        self.dragon_death_time
+            .store(nbt.get_int(DRAGON_DEATH_TIME_KEY).unwrap_or(0));
+        self.sitting_damage_received
+            .store(nbt.get_float(SITTING_DAMAGE_RECEIVED_KEY).unwrap_or(0.0));
     }
 }

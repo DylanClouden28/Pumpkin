@@ -73,6 +73,24 @@ impl EnderDragonPhase {
     pub const fn network_id(self) -> i32 {
         self as i32
     }
+
+    #[must_use]
+    pub const fn from_id(id: i32) -> Option<Self> {
+        Some(match id {
+            0 => Self::HoldingPattern,
+            1 => Self::StrafePlayer,
+            2 => Self::LandingApproach,
+            3 => Self::Landing,
+            4 => Self::Takeoff,
+            5 => Self::SittingFlaming,
+            6 => Self::SittingScanning,
+            7 => Self::SittingAttacking,
+            8 => Self::ChargingPlayer,
+            9 => Self::Dying,
+            10 => Self::Hover,
+            _ => return None,
+        })
+    }
 }
 
 /// Vanilla's squared distances within which a phase keeps its fly target.
