@@ -167,6 +167,25 @@ impl FireballEntity {
     }
 }
 
+/// Vanilla `AbstractHurtingProjectile.applyInertia`; returns the new velocity.
+pub fn apply_inertia(entity: &Entity, acceleration_power: f64) -> Vector3<f64> {
+    let mut velocity = entity.velocity.load();
+    let inertia = if entity.touching_water.load(Ordering::Relaxed) {
+        WATER_INERTIA
+    } else {
+        AIR_INERTIA
+    };
+    if velocity.length() > 1e-6 {
+        velocity = velocity
+            .normalize()
+            .multiply(acceleration_power, acceleration_power, acceleration_power)
+            .add(&velocity)
+            .multiply(inertia, inertia, inertia);
+        entity.velocity.store(velocity);
+    }
+    velocity
+}
+
 impl EntityBase for FireballEntity {
     fn get_owner_id(&self) -> Option<i32> {
         self.thrown.owner_id
@@ -203,26 +222,7 @@ impl EntityBase for FireballEntity {
     }
 
     fn tick(&self, caller: &dyn EntityBase, _server: &Server) {
-        let entity = self.get_entity();
-        let mut velocity = entity.velocity.load();
-
-        let inertia = if entity.touching_water.load(Ordering::Relaxed) {
-            WATER_INERTIA
-        } else {
-            AIR_INERTIA
-        };
-
-        let accel = self.get_acceleration_power();
-        let speed = velocity.length();
-        if speed > 1e-6 {
-            let norm = velocity.normalize();
-            velocity = norm
-                .multiply(accel, accel, accel)
-                .add(&velocity)
-                .multiply(inertia, inertia, inertia);
-            entity.velocity.store(velocity);
-        }
-
+        apply_inertia(self.get_entity(), self.get_acceleration_power());
         self.thrown.process_tick(caller);
     }
 

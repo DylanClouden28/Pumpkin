@@ -1,11 +1,10 @@
 use super::EnderDragonPhase;
 use crate::entity::EntityBase;
 use crate::entity::{
-    Entity,
-    area_effect_cloud::AreaEffectCloudEntity,
     boss::ender_dragon::{EnderDragonEntity, Vector3Ext, find_path},
+    projectile::dragon_fireball,
 };
-use pumpkin_data::entity::EntityType;
+use pumpkin_data::world::WorldEvent;
 use pumpkin_util::math::vector3::Vector3;
 use std::sync::atomic::Ordering;
 
@@ -152,30 +151,34 @@ impl super::Phase for StrafingPhase {
                 *charge = 0;
                 drop(charge);
 
-                let cloud_entity =
-                    Entity::new(world.clone(), player_pos, &EntityType::AREA_EFFECT_CLOUD);
-                let cloud = AreaEffectCloudEntity::create(
-                    cloud_entity,
-                    pumpkin_data::item_stack::ItemStack::new(
+                // Vanilla `DragonStrafePlayerPhase`: launch from just behind the head toward the
+                // middle of the target.
+                let head = dragon.parts[0].entity.pos.load();
+                let yaw = dragon
+                    .mob_entity
+                    .living_entity
+                    .entity
+                    .yaw
+                    .load()
+                    .to_radians();
+                let (view_x, view_z) = (-f64::from(yaw.sin()), f64::from(yaw.cos()));
+                let start = Vector3::new(head.x - view_x, head.y + 0.5 + 0.5, head.z - view_z);
+                let target_box = player.get_entity().bounding_box.load();
+                let target_height = target_box.max.y - target_box.min.y;
+                let direction = Vector3::new(
+                    player_pos.x,
+                    player_pos.y + target_height * 0.5,
+                    player_pos.z,
+                ) - start;
+                let shooter = &dragon.mob_entity.living_entity.entity;
+                if !shooter.is_silent() {
+                    world.sync_world_event(
+                        WorldEvent::SoundDragonFireball,
+                        shooter.block_pos.load(),
                         0,
-                        &pumpkin_data::item::Item::DRAGON_BREATH,
-                    ),
-                    vec![(
-                        &pumpkin_data::effect::StatusEffect::INSTANT_DAMAGE,
-                        1,
-                        0,
-                        false,
-                        true,
-                        true,
-                    )],
-                    600,
-                    3.0,
-                    20,
-                    20,
-                    0.5,
-                    -100,
-                );
-                world.spawn_entity(cloud);
+                    );
+                }
+                dragon_fireball::shoot(shooter, start, direction);
 
                 dragon
                     .path
