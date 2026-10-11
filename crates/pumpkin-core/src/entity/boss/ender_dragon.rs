@@ -26,6 +26,9 @@ use crate::entity::{
     mob::{Mob, MobEntity},
     player::Player,
 };
+use crate::plugin::api::events::entity::{
+    entity_damage::EntityDamageEvent, entity_death::EntityDeathEvent,
+};
 use crate::world::{World, dragon_fight::DragonFight};
 
 pub mod flight_history;
@@ -743,6 +746,21 @@ impl EnderDragonEntity {
         true
     }
 
+    /// Vanilla `EnderDragon.kill`: removes the dragon without the death sequence or experience.
+    fn kill_now(&self) {
+        let entity = &self.mob_entity.living_entity.entity;
+        for part in &self.parts {
+            part.entity.remove();
+        }
+        entity.remove();
+        entity
+            .world
+            .load()
+            .emit_game_event(GameEvent::EntityDie.name(), entity.pos.load());
+        self.update_fight();
+        self.with_fight(|fight, world| fight.set_dragon_killed(world, entity.entity_uuid));
+    }
+
     /// Vanilla `dragonFight.updateDragon(this)`.
     fn update_fight(&self) {
         let living = &self.mob_entity.living_entity;
@@ -963,6 +981,42 @@ impl Mob for EnderDragonEntity {
     /// Vanilla `EnderDragon.canAttack`.
     fn can_attack(&self, target: &dyn EntityBase) -> bool {
         can_be_seen_as_enemy(target)
+    }
+
+    /// Vanilla `EnderDragon.kill`, firing the same plugin events as the generic kill.
+    fn mob_kill(&self, _caller: &dyn EntityBase) {
+        let living = &self.mob_entity.living_entity;
+        let entity = &living.entity;
+        let server = entity.world.load().server.upgrade();
+        let mut damage_event =
+            EntityDamageEvent::new(entity.entity_id, DamageType::GENERIC_KILL, f32::MAX);
+        if let Some(server) = &server {
+            server
+                .plugin_manager
+                .fire_blocking(server, &mut damage_event);
+        }
+        if damage_event.cancelled {
+            return;
+        }
+        if damage_event.damage < living.health.load() {
+            // A plugin made the kill nonlethal, so its damage lands as in the generic kill.
+            living.damage_after_event(
+                self,
+                damage_event.damage,
+                DamageType::GENERIC_KILL,
+                None,
+                None,
+                None,
+            );
+            return;
+        }
+        if let Some(server) = &server {
+            let mut death_event = EntityDeathEvent::new(entity.entity_id, 0);
+            server
+                .plugin_manager
+                .fire_blocking(server, &mut death_event);
+        }
+        self.kill_now();
     }
 
     /// Vanilla `EnderDragon.hurtServer`: damage without a part hits the body.

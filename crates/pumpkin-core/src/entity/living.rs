@@ -2917,7 +2917,6 @@ impl LivingEntity {
         damage
     }
 
-    #[allow(clippy::too_many_lines)]
     pub fn damage_with_context(
         &self,
         caller: &dyn EntityBase,
@@ -2927,8 +2926,6 @@ impl LivingEntity {
         source: Option<&dyn EntityBase>,
         cause: Option<&dyn EntityBase>,
     ) -> bool {
-        let mut amount = amount;
-
         // Check invulnerability before applying damage
         if self.entity.is_invulnerable_to(&damage_type, cause) {
             return false;
@@ -2956,8 +2953,27 @@ impl LivingEntity {
         if damage_event.cancelled {
             return false;
         }
-        amount = damage_event.damage;
+        self.damage_after_event(
+            caller,
+            damage_event.damage,
+            damage_type,
+            position,
+            source,
+            cause,
+        )
+    }
 
+    /// The rest of [`Self::damage_with_context`] once `EntityDamageEvent` let `amount` through.
+    #[allow(clippy::too_many_lines)]
+    pub fn damage_after_event(
+        &self,
+        caller: &dyn EntityBase,
+        mut amount: f32,
+        damage_type: DamageType,
+        position: Option<Vector3<f64>>,
+        source: Option<&dyn EntityBase>,
+        cause: Option<&dyn EntityBase>,
+    ) -> bool {
         if let Some(damager) = source.or(cause) {
             let mut by_entity_event =
                 crate::plugin::api::events::entity::entity_damage_by_entity::EntityDamageByEntityEvent {

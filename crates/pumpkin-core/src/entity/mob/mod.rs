@@ -1312,6 +1312,11 @@ pub trait Mob: EntityBase + Send + Sync {
 
     fn mob_player_collision(&self, _player: &Arc<Player>) {}
 
+    /// Vanilla `LivingEntity.kill` (`/kill`): `generic_kill` damage.
+    fn mob_kill(&self, caller: &dyn EntityBase) {
+        caller.damage(caller, f32::MAX, DamageType::GENERIC_KILL);
+    }
+
     fn get_owner_uuid(&self) -> Option<Uuid> {
         self.as_tamable()
             .and_then(crate::entity::passive::tamable::TamableAnimal::get_owner)
@@ -1488,6 +1493,10 @@ impl<T: Mob + Send + 'static> EntityBase for T {
 
     fn on_player_collision(&self, player: &Arc<Player>) {
         self.mob_player_collision(player);
+    }
+
+    fn kill(&self, caller: &dyn EntityBase) {
+        self.mob_kill(caller);
     }
 
     fn get_entity(&self) -> &Entity {
