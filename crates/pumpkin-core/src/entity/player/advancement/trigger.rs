@@ -432,6 +432,12 @@ impl Player {
                         "killed_something",
                     );
                 }
+                if entity_type_resource == "minecraft:ender_dragon" {
+                    self.trigger_advancement_criterion(
+                        Advancement::END_KILL_DRAGON,
+                        "killed_dragon",
+                    );
+                }
             }
             AdvancementTrigger::SleptInBed => {
                 if !self.has_advancement(Advancement::ADVENTURE_SLEEP_IN_BED) {
