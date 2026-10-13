@@ -30,7 +30,9 @@ use crate::entity::ageable::AgeableMob;
 use crate::entity::attributes::AttributeInstance;
 use crate::entity::attributes::Modifier;
 use crate::entity::attributes::ModifierOperation;
-use crate::entity::combat::{CombatRules, CombatTracker, FallLocation, knockback_after_resistance};
+use crate::entity::combat::{
+    CombatRules, CombatTracker, FallLocation, can_knockback, knockback_after_resistance,
+};
 use crate::entity::mob::equipment::DEFAULT_EQUIPMENT_DROP_CHANCE;
 use crate::entity::player::statistics::{CustomStatistic, StatisticCategory};
 use crate::server::Server;
@@ -3214,6 +3216,7 @@ impl LivingEntity {
 
             if let Some(source) = source
                 && !damage_type.has_tag(&tag::DamageType::MINECRAFT_NO_KNOCKBACK)
+                && can_knockback(caller)
             {
                 let source_pos = source.get_entity().pos.load();
                 let target_pos = self.entity.pos.load();

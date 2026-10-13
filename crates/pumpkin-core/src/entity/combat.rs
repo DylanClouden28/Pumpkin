@@ -67,13 +67,21 @@ pub fn knockback_after_resistance(strength: f64, resistance: f64) -> f64 {
     strength * (1.0 - resistance)
 }
 
+// Vanilla `EnderDragon.knockback`: a perched dragon isn't knocked back.
+pub(super) fn can_knockback(victim: &dyn EntityBase) -> bool {
+    !victim
+        .cast_any()
+        .downcast_ref::<crate::entity::boss::ender_dragon::EnderDragonEntity>()
+        .is_some_and(|dragon| dragon.current_phase().is_sitting())
+}
+
 pub fn handle_knockback(attacker: &Entity, victim: &dyn EntityBase, strength: f64) {
     let resistance = victim.get_living_entity().map_or(0.0, |living| {
         living.get_attribute_value(&Attributes::KNOCKBACK_RESISTANCE)
     });
     let strength = knockback_after_resistance(strength * 0.5, resistance);
 
-    if strength > 0.0 {
+    if strength > 0.0 && can_knockback(victim) {
         let yaw = attacker.yaw.load();
         victim.get_entity().knockback(
             strength,
