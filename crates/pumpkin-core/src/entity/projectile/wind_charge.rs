@@ -109,7 +109,7 @@ impl WindChargeEntity {
             return false;
         }
 
-        deflection.deflect(self, deflector);
+        deflection.deflect(self, deflector, 1.0);
         true
     }
 }

@@ -10,17 +10,22 @@ pub enum ProjectileDeflectionType {
 }
 
 impl ProjectileDeflectionType {
-    pub fn deflect(&self, projectile: &mut dyn EntityBase, hit_entity: Option<&dyn EntityBase>) {
+    pub fn deflect(
+        &self,
+        projectile: &dyn EntityBase,
+        hit_entity: Option<&dyn EntityBase>,
+        power: f64,
+    ) {
         match self {
             Self::None => {}
             Self::Simple => {
                 let vel = rand::random::<f32>().mul_add(20.0, 170.0);
 
-                let current_velocity = projectile
-                    .get_entity()
-                    .velocity
-                    .load()
-                    .multiply(-0.5, -0.5, -0.5);
+                let current_velocity = projectile.get_entity().velocity.load().multiply(
+                    -power * 0.5,
+                    -power * 0.5,
+                    -power * 0.5,
+                );
 
                 let entity = projectile.get_entity();
                 entity.velocity.store(current_velocity);
@@ -36,7 +41,9 @@ impl ProjectileDeflectionType {
                     let rotation_vector = hit_entity.get_entity().rotation();
 
                     let entity = projectile.get_entity();
-                    entity.velocity.store(rotation_vector.to_f64());
+                    entity
+                        .velocity
+                        .store(rotation_vector.to_f64().multiply(power, power, power));
                     entity.velocity_dirty.store(true, Ordering::Relaxed);
                 }
             }
@@ -45,7 +52,9 @@ impl ProjectileDeflectionType {
                     let hit_velocity = hit_entity.get_entity().velocity.load().normalize();
 
                     let entity = projectile.get_entity();
-                    entity.velocity.store(hit_velocity);
+                    entity
+                        .velocity
+                        .store(hit_velocity.multiply(power, power, power));
                     entity.velocity_dirty.store(true, Ordering::Relaxed);
                 }
             }

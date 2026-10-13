@@ -3,6 +3,7 @@ use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering};
 
 use crate::entity::projectile::{ProjectileHit, calculate_ray_intersection};
+use crate::entity::projectile_deflection::ProjectileDeflectionType;
 use crate::{
     entity::{Entity, EntityBase, living::LivingEntity, player::Player},
     server::Server,
@@ -908,6 +909,7 @@ impl EntityBase for ArrowEntity {
                 let is_enderman =
                     target.get_entity().entity_type == &pumpkin_data::entity::EntityType::ENDERMAN;
                 let is_on_fire = entity.is_on_fire() || self.is_flame.load(Ordering::Relaxed);
+                let remaining_fire_ticks = target.get_entity().fire_ticks.load(Ordering::Relaxed);
                 if is_on_fire && !is_enderman {
                     target.get_entity().set_on_fire_for(5.0);
                 }
@@ -927,6 +929,33 @@ impl EntityBase for ArrowEntity {
                     owner_entity.as_deref(),
                     None,
                 );
+
+                if !damage_succeeded {
+                    // Vanilla moves the arrow to the hit location before hitting
+                    entity.set_pos(hit_pos);
+                    // The arrow keeps flying. `pierced_entities` already holds the target, so it can't
+                    // hit the same entity again (vanilla only skips it for piercing arrows).
+                    self.has_hit.store(false, Ordering::SeqCst);
+                    // Enderman.projectileReceivesSideEffectsOnHit: arrows pass through endermen
+                    if !is_enderman {
+                        target
+                            .get_entity()
+                            .fire_ticks
+                            .store(remaining_fire_ticks, Ordering::Relaxed);
+                        ProjectileDeflectionType::Simple.deflect(self, Some(target.as_ref()), 0.2);
+                        if entity.velocity.load().length_squared() < 1.0E-7 {
+                            if self.pickup == ArrowPickup::Allowed {
+                                let item_stack = self
+                                    .item_stack
+                                    .read()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                                entity.spawn_at_location(Self::pickup_item_stack(&item_stack));
+                            }
+                            entity.remove();
+                        }
+                    }
+                    return;
+                }
 
                 if let Some(living) = target.get_living_entity() {
                     if punch > 0 {
