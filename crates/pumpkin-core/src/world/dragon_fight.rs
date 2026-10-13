@@ -74,7 +74,7 @@ pub struct DragonFight {
     ticks_since_last_player_scan: i32,
 
     // ── Boss bar ──────────────────────────────────────────────────────────────
-    bossbar_uuid: Uuid,
+    bossbar: Bossbar,
     bossbar_players: Vec<Uuid>,
 }
 
@@ -122,7 +122,19 @@ impl DragonFight {
             ticks_since_crystals_scanned: 0,
             // Start above threshold so first tick with players triggers a scan
             ticks_since_last_player_scan: TIME_BETWEEN_PLAYER_SCANS + 1,
-            bossbar_uuid: Uuid::new_v4(),
+            bossbar: Bossbar {
+                uuid: Uuid::new_v4(),
+                title: TextComponent::translate(
+                    "entity.minecraft.ender_dragon",
+                    Vec::<TextComponent>::new(),
+                ),
+                health: 1.0,
+                color: BossbarColor::Pink,
+                division: BossbarDivisions::NoDivision,
+                flags: BossbarFlags::DRAGON_BAR
+                    | BossbarFlags::CREATE_FOG
+                    | BossbarFlags::DARKEN_SKY,
+            },
             bossbar_players: Vec::new(),
         }
     }
@@ -1029,32 +1041,28 @@ impl DragonFight {
 
     // ── Boss-bar management ───────────────────────────────────────────────────
 
-    fn make_bossbar(&self) -> Bossbar {
-        Bossbar {
-            uuid: self.bossbar_uuid,
-            title: TextComponent::translate(
-                "entity.minecraft.ender_dragon",
-                Vec::<TextComponent>::new(),
-            ),
-            health: 1.0,
-            color: BossbarColor::Pink,
-            division: BossbarDivisions::NoDivision,
-            flags: BossbarFlags::DRAGON_BAR | BossbarFlags::CREATE_FOG | BossbarFlags::DARKEN_SKY,
+    // ServerBossEvent.setProgress / setName only broadcast when the value changes.
+    #[expect(clippy::float_cmp)]
+    fn update_bossbar_health(&mut self, world: &Arc<World>, health: f32) {
+        if health == self.bossbar.health {
+            return;
         }
-    }
-
-    fn update_bossbar_health(&self, world: &Arc<World>, health: f32) {
+        self.bossbar.health = health;
         for player in world.players.load().iter() {
             if self.bossbar_players.contains(&player.gameprofile.id) {
-                player.update_bossbar_health(&self.bossbar_uuid, health);
+                player.update_bossbar_health(&self.bossbar.uuid, health);
             }
         }
     }
 
-    fn update_bossbar_title(&self, world: &Arc<World>, title: &TextComponent) {
+    fn update_bossbar_title(&mut self, world: &Arc<World>, title: &TextComponent) {
+        if *title == self.bossbar.title {
+            return;
+        }
+        self.bossbar.title = title.clone();
         for player in world.players.load().iter() {
             if self.bossbar_players.contains(&player.gameprofile.id) {
-                player.update_bossbar_title(&self.bossbar_uuid, title.clone());
+                player.update_bossbar_title(&self.bossbar.uuid, title.clone());
             }
         }
     }
@@ -1062,7 +1070,7 @@ impl DragonFight {
     fn remove_all_bossbar(&mut self, world: &Arc<World>) {
         for player in world.players.load().iter() {
             if self.bossbar_players.contains(&player.gameprofile.id) {
-                player.remove_bossbar(self.bossbar_uuid);
+                player.remove_bossbar(self.bossbar.uuid);
             }
         }
         self.bossbar_players.clear();
@@ -1092,7 +1100,7 @@ impl DragonFight {
                 if !self.dragon_killed
                     && let Some(p) = players.iter().find(|p| p.gameprofile.id == uid)
                 {
-                    p.send_bossbar(&self.make_bossbar());
+                    p.send_bossbar(&self.bossbar);
                 }
                 self.bossbar_players.push(uid);
             }
@@ -1108,7 +1116,7 @@ impl DragonFight {
 
         for uid in &to_remove {
             if let Some(player) = players.iter().find(|player| &player.gameprofile.id == uid) {
-                player.remove_bossbar(self.bossbar_uuid);
+                player.remove_bossbar(self.bossbar.uuid);
             }
             self.bossbar_players.retain(|u| u != uid);
         }
