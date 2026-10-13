@@ -982,6 +982,11 @@ impl Mob for EnderDragonEntity {
             .client_tick(self);
     }
 
+    /// Vanilla `EnderDragon.checkDespawn` is empty: the dragon never despawns.
+    fn remove_when_far_away(&self, _distance_sq: f64) -> bool {
+        false
+    }
+
     /// Vanilla `EnderDragon.canAttack`.
     fn can_attack(&self, target: &dyn EntityBase) -> bool {
         can_be_seen_as_enemy(target)
