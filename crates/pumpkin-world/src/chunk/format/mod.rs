@@ -142,6 +142,12 @@ fn extract_u16_array(tag: &pumpkin_nbt::tag::NbtTag) -> Option<Box<[BlockStateId
                         }
                         BlockStateId::AIR
                     }
+                    // 26.3 writes a block's default state as just its name
+                    pumpkin_nbt::tag::NbtTag::String(name) => {
+                        Block::from_name(name).map_or(BlockStateId::AIR, |block| {
+                            block.default_state.id
+                        })
+                    }
                     _ => BlockStateId::AIR,
                 })
                 .collect();
@@ -1192,6 +1198,27 @@ mod tests {
             ])
             .to_state_id(&Block::REPEATER);
         assert_eq!(result[1], repeater_state);
+    }
+
+    #[test]
+    fn extract_u16_array_from_vanilla_string_palette() {
+        // Vanilla 26.3 writes default states as bare names. Grass block's default (snowy=false)
+        // is not its first state, so this also catches picking the wrong state.
+        let list_tag = NbtTag::List(vec![
+            NbtTag::String("minecraft:air".to_string().into()),
+            NbtTag::String("minecraft:end_stone".to_string().into()),
+            NbtTag::String("minecraft:grass_block".to_string().into()),
+        ]);
+        let result = extract_u16_array(&list_tag).expect("should extract palette");
+
+        assert_eq!(
+            *result,
+            [
+                Block::AIR.default_state.id,
+                Block::END_STONE.default_state.id,
+                Block::GRASS_BLOCK.default_state.id
+            ]
+        );
     }
 
     #[test]
