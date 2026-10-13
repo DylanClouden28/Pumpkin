@@ -28,6 +28,7 @@ use crate::entity::{
     player::Player,
 };
 use crate::plugin::api::events::entity::{
+    ender_dragon_change_phase::EnderDragonChangePhaseEvent,
     entity_change_block::EntityChangeBlockEvent, entity_damage::EntityDamageEvent,
     entity_death::EntityDeathEvent,
 };
@@ -201,8 +202,34 @@ impl EnderDragonEntity {
         self.fight_origin.store(pos);
     }
 
-    /// Vanilla `EnderDragonPhaseManager.setPhase`, which also syncs the phase to clients.
+    /// Vanilla `EnderDragonPhaseManager.setPhase`, which also syncs the phase to clients. Plugins
+    /// can cancel the change, so callers must not hold the fight lock or a phase's state lock.
     pub fn set_phase(&self, phase_type: EnderDragonPhase) {
+        let old = self.current_phase_type();
+        if old == phase_type {
+            return;
+        }
+        let entity = &self.mob_entity.living_entity.entity;
+        let new_phase = if let Some(server) = entity.world.load().server.upgrade() {
+            let mut event = EnderDragonChangePhaseEvent {
+                entity_id: entity.entity_id,
+                current_phase: old.name().to_string(),
+                new_phase: phase_type.name().to_string(),
+                cancelled: false,
+            };
+            server.plugin_manager.fire_blocking(&server, &mut event);
+            if event.cancelled {
+                return;
+            }
+            EnderDragonPhase::from_name(&event.new_phase).unwrap_or(phase_type)
+        } else {
+            phase_type
+        };
+        self.set_phase_without_event(new_phase);
+    }
+
+    /// [`Self::set_phase`] without the plugin event, for a dragon that isn't in the world yet.
+    pub fn set_phase_without_event(&self, phase_type: EnderDragonPhase) {
         let old = self.current_phase_type();
         if old == phase_type {
             return;
@@ -1213,9 +1240,18 @@ impl Mob for EnderDragonEntity {
     fn mob_read_nbt(&self, nbt: &NbtCompound) {
         // Vanilla `EnderDragonPhase.getById` turns an unknown id into the holding pattern.
         if let Some(id) = nbt.get_int(DRAGON_PHASE_KEY) {
-            self.set_phase(
-                EnderDragonPhase::from_id(id).unwrap_or(EnderDragonPhase::HoldingPattern),
-            );
+            let phase = EnderDragonPhase::from_id(id).unwrap_or(EnderDragonPhase::HoldingPattern);
+            let entity = &self.mob_entity.living_entity.entity;
+            if entity
+                .world
+                .load()
+                .get_entity_by_id(entity.entity_id)
+                .is_some()
+            {
+                self.set_phase(phase);
+            } else {
+                self.set_phase_without_event(phase);
+            }
         }
         self.dragon_death_time
             .store(nbt.get_int(DRAGON_DEATH_TIME_KEY).unwrap_or(0));

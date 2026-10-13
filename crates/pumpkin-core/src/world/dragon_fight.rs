@@ -444,7 +444,8 @@ impl DragonFight {
             .downcast_ref::<crate::entity::boss::ender_dragon::EnderDragonEntity>(
         ) {
             dragon_entity.set_fight_origin(self.exit_portal_location.unwrap_or(self.origin));
-            dragon_entity.set_phase(
+            // No plugin event: the fight lock is held and the dragon isn't spawned yet.
+            dragon_entity.set_phase_without_event(
                 crate::entity::boss::ender_dragon::phase::EnderDragonPhase::HoldingPattern,
             );
         }

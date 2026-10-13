@@ -94,7 +94,33 @@ impl EnderDragonPhase {
             _ => return None,
         })
     }
+
+    /// Vanilla's phase names (`EnderDragonPhase.create`), as plugins see them.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        PHASE_NAMES[self as usize]
+    }
+
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        let id = PHASE_NAMES.iter().position(|n| *n == name)?;
+        Self::from_id(id as i32)
+    }
 }
+
+const PHASE_NAMES: [&str; 11] = [
+    "HoldingPattern",
+    "StrafePlayer",
+    "LandingApproach",
+    "Landing",
+    "Takeoff",
+    "SittingFlaming",
+    "SittingScanning",
+    "SittingAttacking",
+    "ChargingPlayer",
+    "Dying",
+    "Hover",
+];
 
 /// Vanilla's squared distances within which a phase keeps its fly target.
 pub const TARGET_DIST_SQR_RANGE: RangeInclusive<f64> = 100.0..=22500.0;
