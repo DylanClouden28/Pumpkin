@@ -81,7 +81,7 @@ impl JavaRandom {
     }
 
     pub const fn next_i64(&mut self) -> i64 {
-        ((self.next(32) as i64) << 32) + self.next(32) as i64
+        ((self.next(32) as i64) << 32).wrapping_add(self.next(32) as i64)
     }
 }
 
@@ -138,7 +138,7 @@ impl EndSpikeFeature {
         pos: BlockPos,
     ) -> bool {
         let spikes = if self.spikes.is_empty() {
-            Self::get_spikes_for_seed(0).to_vec()
+            Self::get_spikes_for_seed(chunk.get_center_chunk().seed()).to_vec()
         } else {
             self.spikes.clone()
         };

@@ -139,6 +139,7 @@ pub struct ProtoChunk {
     pub x: i32,
     pub z: i32,
     pub default_block: &'static BlockState,
+    seed: u64,
     biome_mixer_seed: i64,
     pub(crate) flat_block_map: Vec<BlockStateId>,
     pub flat_biome_map: Box<[u8]>,
@@ -201,6 +202,11 @@ impl ProtoChunk {
         self.sea_level
     }
 
+    #[must_use]
+    pub const fn seed(&self) -> u64 {
+        self.seed
+    }
+
     #[cfg(test)]
     pub(crate) fn has_structure(&self, key: StructureKeys) -> bool {
         self.structure_starts.contains_key(&key)
@@ -244,6 +250,7 @@ impl ProtoChunk {
             x,
             z,
             default_block,
+            seed: generator.seed(),
             biome_mixer_seed,
             flat_block_map: Vec::new(),
             flat_biome_map: vec![

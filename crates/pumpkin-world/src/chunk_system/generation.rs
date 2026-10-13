@@ -318,6 +318,59 @@ mod tests {
     }
 
     #[test]
+    fn spikes_follow_world_seed() {
+        use crate::generation::feature::features::end_spike::EndSpikeFeature;
+        use pumpkin_data::{Block, placed_feature::PlacedFeature};
+        use pumpkin_util::math::{position::BlockPos, vector3::Vector3};
+        use pumpkin_util::random::{RandomGenerator, legacy_rand::LegacyRand};
+
+        let feature = EndSpikeFeature {
+            crystal_invulnerable: false,
+            spikes: Vec::new(),
+        };
+        let mut random = RandomGenerator::Legacy(LegacyRand::from_seed(0));
+        // Vanilla 26.3 spikes 2 and 7 of seed 1003, and spike 1 of a seed whose nextLong() wraps.
+        for (seed, x, z, height, radius) in [
+            (1003, 12, 39, 82, 2),
+            (1003, -13, -40, 79, 2),
+            (247_775_869_193_412, 33, 24, 100, 4),
+        ] {
+            let world_gen = get_world_gen(
+                Seed(seed),
+                Dimension::THE_END,
+                false,
+                Vec::new(),
+                String::new(),
+            );
+            let mut chunk = crate::ProtoChunk::new(x >> 4, z >> 4, &world_gen);
+            let min_y = chunk.bottom_y();
+            let height_limit = chunk.height();
+            assert!(feature.generate(
+                &mut chunk,
+                &BlockRegistry,
+                min_y,
+                height_limit,
+                PlacedFeature::EndSpike,
+                &mut random,
+                BlockPos::new((x >> 4) << 4, 0, (z >> 4) << 4),
+            ));
+            for (dx, y, block) in [
+                (0, height - 1, Block::OBSIDIAN),
+                (0, height, Block::BEDROCK),
+                (0, height + 1, Block::FIRE),
+                (radius, height - 1, Block::OBSIDIAN),
+                (radius + 1, height - 1, Block::AIR),
+            ] {
+                assert_eq!(
+                    chunk.get_block_state(&Vector3::new(x + dx, y, z)),
+                    block.default_state.id,
+                    "spike at ({x}, {z}), offset {dx}, y {y}",
+                );
+            }
+        }
+    }
+
+    #[test]
     fn fixed_seed_generates_vanilla_end_ship_chunk() {
         // Vanilla 26.2 places this seed's ship in chunk (-306, -275).
         let dimension = Dimension::THE_END;
