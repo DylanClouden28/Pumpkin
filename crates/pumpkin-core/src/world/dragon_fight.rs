@@ -75,6 +75,7 @@ pub struct DragonFight {
 
     // ── Boss bar ──────────────────────────────────────────────────────────────
     bossbar: Bossbar,
+    bossbar_visible: bool,
     bossbar_players: Vec<Uuid>,
 }
 
@@ -135,6 +136,7 @@ impl DragonFight {
                     | BossbarFlags::CREATE_FOG
                     | BossbarFlags::DARKEN_SKY,
             },
+            bossbar_visible: true,
             bossbar_players: Vec::new(),
         }
     }
@@ -167,6 +169,9 @@ impl DragonFight {
         let mut fight = fight_mutex
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        let visible = !fight.dragon_killed;
+        fight.set_bossbar_visible(world, visible);
 
         // 1. Update boss-bar recipients every 20 ticks
         fight.ticks_since_last_player_scan += 1;
@@ -504,7 +509,7 @@ impl DragonFight {
         }
 
         self.update_bossbar_health(world, 0.0);
-        self.remove_all_bossbar(world);
+        self.set_bossbar_visible(world, false);
 
         // Activate the exit portal.
         self.spawn_exit_portal(world, true);
@@ -1048,6 +1053,9 @@ impl DragonFight {
             return;
         }
         self.bossbar.health = health;
+        if !self.bossbar_visible {
+            return;
+        }
         for player in world.players.load().iter() {
             if self.bossbar_players.contains(&player.gameprofile.id) {
                 player.update_bossbar_health(&self.bossbar.uuid, health);
@@ -1060,6 +1068,9 @@ impl DragonFight {
             return;
         }
         self.bossbar.title = title.clone();
+        if !self.bossbar_visible {
+            return;
+        }
         for player in world.players.load().iter() {
             if self.bossbar_players.contains(&player.gameprofile.id) {
                 player.update_bossbar_title(&self.bossbar.uuid, title.clone());
@@ -1067,13 +1078,21 @@ impl DragonFight {
         }
     }
 
-    fn remove_all_bossbar(&mut self, world: &Arc<World>) {
+    // ServerBossEvent.setVisible: the player set is kept, only the client-side bar is added or removed.
+    fn set_bossbar_visible(&mut self, world: &Arc<World>, visible: bool) {
+        if visible == self.bossbar_visible {
+            return;
+        }
+        self.bossbar_visible = visible;
         for player in world.players.load().iter() {
             if self.bossbar_players.contains(&player.gameprofile.id) {
-                player.remove_bossbar(self.bossbar.uuid);
+                if visible {
+                    player.send_bossbar(&self.bossbar);
+                } else {
+                    player.remove_bossbar(self.bossbar.uuid);
+                }
             }
         }
-        self.bossbar_players.clear();
     }
 
     fn update_players(&mut self, world: &Arc<World>) {
@@ -1097,7 +1116,7 @@ impl DragonFight {
         // Add newly-in-range players
         for &uid in &current {
             if !self.bossbar_players.contains(&uid) {
-                if !self.dragon_killed
+                if self.bossbar_visible
                     && let Some(p) = players.iter().find(|p| p.gameprofile.id == uid)
                 {
                     p.send_bossbar(&self.bossbar);
@@ -1115,7 +1134,9 @@ impl DragonFight {
             .collect();
 
         for uid in &to_remove {
-            if let Some(player) = players.iter().find(|player| &player.gameprofile.id == uid) {
+            if self.bossbar_visible
+                && let Some(player) = players.iter().find(|player| &player.gameprofile.id == uid)
+            {
                 player.remove_bossbar(self.bossbar.uuid);
             }
             self.bossbar_players.retain(|u| u != uid);
