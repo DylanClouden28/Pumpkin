@@ -132,9 +132,7 @@ impl DragonFight {
                 health: 1.0,
                 color: BossbarColor::Pink,
                 division: BossbarDivisions::NoDivision,
-                flags: BossbarFlags::DRAGON_BAR
-                    | BossbarFlags::CREATE_FOG
-                    | BossbarFlags::DARKEN_SKY,
+                flags: BossbarFlags::DRAGON_BAR | BossbarFlags::CREATE_FOG,
             },
             bossbar_visible: true,
             bossbar_players: Vec::new(),
