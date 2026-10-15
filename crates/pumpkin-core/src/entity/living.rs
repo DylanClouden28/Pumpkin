@@ -772,6 +772,11 @@ impl LivingEntity {
 
     pub fn heal(&self, additional_health: f32) {
         assert!(additional_health > 0.0);
+        // Vanilla `LivingEntity.heal` only heals while `health > 0`, which also rules out NaN.
+        let health = self.health.load();
+        if health <= 0.0 || health.is_nan() {
+            return;
+        }
         let mut event =
             crate::plugin::api::events::entity::entity_regain_health::EntityRegainHealthEvent::new(
                 self.entity.entity_id,
