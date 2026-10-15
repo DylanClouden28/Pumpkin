@@ -11,15 +11,12 @@ pub struct PotionContents;
 pub enum PotionApplicationSource {
     /// Normal application (drinking / splash)
     Normal,
-    /// `AreaEffectCloud` application (shorter durations and weaker instant potency)
-    AreaEffectCloud,
     Arrow,
 }
 
 impl PotionApplicationSource {
     const fn instant_scale(self, scale: f32) -> f32 {
         match self {
-            Self::AreaEffectCloud => scale * 0.5,
             Self::Arrow => 1.0,
             Self::Normal => scale,
         }
@@ -27,7 +24,6 @@ impl PotionApplicationSource {
 
     const fn duration_scale(self, scale: f32) -> f32 {
         match self {
-            Self::AreaEffectCloud => scale * 0.25,
             Self::Arrow | Self::Normal => scale,
         }
     }

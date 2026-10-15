@@ -97,6 +97,7 @@ impl EntityBase for LingeringPotionEntity {
         self
     }
 
+    #[expect(clippy::too_many_lines)]
     fn on_hit(&self, hit: crate::entity::projectile::ProjectileHit) {
         let world = self.get_entity().world.load();
         let hit_pos = hit.hit_pos();
@@ -211,6 +212,11 @@ impl EntityBase for LingeringPotionEntity {
             -0.5,
             -100,
         );
+        let owner = self
+            .thrown
+            .owner_id
+            .and_then(|id| world.get_entity_by_id(id));
+        cloud.set_owner(owner.as_ref().and_then(|owner| owner.get_living_entity()));
 
         world.spawn_entity(cloud);
     }
