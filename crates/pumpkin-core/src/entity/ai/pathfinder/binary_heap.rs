@@ -193,29 +193,31 @@ impl BinaryHeap {
     fn bubble_down(&mut self, mut index: usize) {
         loop {
             let left_child = index * 2;
-            let right_child = index * 2 + 1;
-            let mut smallest = index;
-
-            if left_child <= self.size
-                && let (Some(node), Some(left)) = (&self.heap[smallest], &self.heap[left_child])
-                && left.f < node.f
-            {
-                smallest = left_child;
-            }
-
-            if right_child <= self.size
-                && let (Some(node), Some(right)) = (&self.heap[smallest], &self.heap[right_child])
-                && right.f < node.f
-            {
-                smallest = right_child;
-            }
-
-            if smallest == index {
+            let right_child = left_child + 1;
+            if left_child > self.size {
                 break;
             }
+            let (Some(node), Some(left)) = (&self.heap[index], &self.heap[left_child]) else {
+                break;
+            };
+            let right_f = if right_child > self.size {
+                f32::INFINITY
+            } else {
+                self.heap[right_child].map_or(f32::INFINITY, |right| right.f)
+            };
 
-            self.swap_nodes(index, smallest);
-            index = smallest;
+            // Vanilla `BinaryHeap.downHeap` takes the right child when both children cost the same.
+            let (child, child_f) = if left.f < right_f {
+                (left_child, left.f)
+            } else {
+                (right_child, right_f)
+            };
+            if child_f < node.f {
+                self.swap_nodes(index, child);
+                index = child;
+            } else {
+                break;
+            }
         }
     }
 
@@ -236,5 +238,27 @@ impl BinaryHeap {
 impl Default for BinaryHeap {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pumpkin_util::math::position::BlockPos;
+
+    #[test]
+    fn pop_order_matches_vanilla_on_equal_children() {
+        // Worked through vanilla `BinaryHeap`: after popping x=0 the root (f=5) has two children
+        // with f=1 and moves to the right one, so x=2 is popped before x=1.
+        let mut heap = BinaryHeap::new();
+        for (x, f) in [(0, 0.0), (1, 1.0), (2, 1.0), (3, 5.0)] {
+            let mut node = Node::new(BlockPos::new(x, 0, 0));
+            node.f = f;
+            heap.insert(node);
+        }
+        let order: Vec<i32> = std::iter::from_fn(|| heap.pop())
+            .map(|node| node.pos.0.x)
+            .collect();
+        assert_eq!(order, [0, 2, 1, 3]);
     }
 }
