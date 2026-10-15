@@ -929,7 +929,7 @@ impl EntityBase for ArrowEntity {
                 );
 
                 if let Some(living) = target.get_living_entity() {
-                    if punch > 0 {
+                    if punch > 0 && damage_succeeded {
                         let norm = Vector3::new(velocity.x, 0.0, velocity.z).normalize();
                         let push_scale = f64::from(punch) * 0.6;
                         target.get_entity().velocity.store(
