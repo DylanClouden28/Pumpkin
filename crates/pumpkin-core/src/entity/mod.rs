@@ -3485,6 +3485,25 @@ impl Entity {
             .clone()
     }
 
+    /// Vanilla `Entity.getRootVehicle`, or `None` when this entity rides nothing.
+    pub fn get_root_vehicle(&self) -> Option<Arc<dyn EntityBase>> {
+        let mut root = self.get_vehicle()?;
+        while let Some(vehicle) = root.get_entity().get_vehicle() {
+            root = vehicle;
+        }
+        Some(root)
+    }
+
+    /// Vanilla `Entity.isPassengerOfSameVehicle`.
+    pub fn is_passenger_of_same_vehicle(&self, other: &Self) -> bool {
+        let root_id = |entity: &Self| {
+            entity
+                .get_root_vehicle()
+                .map_or(entity.entity_id, |root| root.get_entity().entity_id)
+        };
+        root_id(self) == root_id(other)
+    }
+
     pub fn is_leashed(&self) -> bool {
         self.leashed_to
             .lock()

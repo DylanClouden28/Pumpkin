@@ -1,11 +1,16 @@
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use pumpkin_util::math::vector3::Vector3;
 
 use crate::{
     entity::{
         Entity, EntityBase,
-        projectile::{ProjectileHit, ThrownItemEntity, fireball::INITIAL_ACCELERATION_POWER},
+        projectile::{
+            ProjectileHit, ThrownItemEntity,
+            fireball::{
+                AIR_INERTIA, INITIAL_ACCELERATION_POWER, WATER_INERTIA, fireball_damage_source,
+            },
+        },
     },
     server::Server,
 };
@@ -24,6 +29,7 @@ impl SmallFireballEntity {
             owner_id: None,
             collides_with_projectiles: false,
             has_hit: AtomicBool::new(false),
+            left_owner: AtomicBool::new(false),
             gravity: GRAVITY,
         };
 
@@ -48,7 +54,12 @@ impl EntityBase for SmallFireballEntity {
     }
 
     fn tick(&self, caller: &dyn EntityBase, _server: &Server) {
-        self.thrown.process_tick(caller);
+        self.thrown.process_hurting_tick(
+            caller,
+            INITIAL_ACCELERATION_POWER,
+            AIR_INERTIA,
+            WATER_INERTIA,
+        );
     }
 
     fn get_entity(&self) -> &Entity {
@@ -64,13 +75,30 @@ impl EntityBase for SmallFireballEntity {
 
     fn on_hit(&self, hit: ProjectileHit) {
         match hit {
-            ProjectileHit::Entity { ref entity, .. } => {
-                entity.get_entity().set_on_fire_for(5.0);
-                let _ = entity.damage(
+            ProjectileHit::Entity {
+                ref entity,
+                hit_pos,
+                ..
+            } => {
+                // Vanilla puts the target's fire back when the hit is rejected.
+                let target = entity.get_entity();
+                let remaining_fire_ticks = target.fire_ticks.load(Ordering::Relaxed);
+                target.set_on_fire_for(5.0);
+                let owner = self.thrown.get_owner();
+                let (damage_type, cause) =
+                    fireball_damage_source(self.get_entity(), owner.as_deref());
+                if !entity.damage_with_context(
                     entity.as_ref(),
                     5.0,
-                    pumpkin_data::damage::DamageType::FIREBALL,
-                );
+                    damage_type,
+                    Some(hit_pos),
+                    Some(self.get_entity()),
+                    Some(cause),
+                ) {
+                    target
+                        .fire_ticks
+                        .store(remaining_fire_ticks, Ordering::Relaxed);
+                }
             }
             ProjectileHit::Block { pos, face, .. } => {
                 // Try to place fire

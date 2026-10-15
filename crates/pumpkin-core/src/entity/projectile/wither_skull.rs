@@ -7,13 +7,19 @@ use pumpkin_util::{Difficulty, math::vector3::Vector3};
 use crate::{
     entity::{
         Entity, EntityBase,
-        projectile::{ProjectileHit, ThrownItemEntity},
+        projectile::{
+            ProjectileHit, ThrownItemEntity,
+            fireball::{AIR_INERTIA, INITIAL_ACCELERATION_POWER, WATER_INERTIA},
+            is_alive,
+        },
     },
     server::Server,
     world::ExplosionInteraction,
 };
 
 const GRAVITY: f64 = 0.0;
+/// Vanilla `WitherSkull.getInertia` for a dangerous skull.
+const DANGEROUS_INERTIA: f32 = 0.73;
 
 pub struct WitherSkullEntity {
     pub thrown: ThrownItemEntity,
@@ -28,6 +34,7 @@ impl WitherSkullEntity {
             owner_id: None,
             collides_with_projectiles: false,
             has_hit: AtomicBool::new(false),
+            left_owner: AtomicBool::new(false),
             gravity: GRAVITY,
         };
 
@@ -45,7 +52,7 @@ impl WitherSkullEntity {
         direction: Vector3<f64>,
     ) -> Self {
         let thrown = ThrownItemEntity::new(entity, shooter, GRAVITY);
-        let speed = 0.95;
+        let speed = INITIAL_ACCELERATION_POWER;
         let vel = direction.normalize().multiply(speed, speed, speed);
         thrown.entity.velocity.store(vel);
 
@@ -98,7 +105,17 @@ impl EntityBase for WitherSkullEntity {
     }
 
     fn tick(&self, caller: &dyn EntityBase, _server: &Server) {
-        self.thrown.process_tick(caller);
+        let inertia = if self.is_dangerous() {
+            DANGEROUS_INERTIA
+        } else {
+            AIR_INERTIA
+        };
+        self.thrown.process_hurting_tick(
+            caller,
+            INITIAL_ACCELERATION_POWER,
+            inertia,
+            WATER_INERTIA,
+        );
     }
 
     fn get_entity(&self) -> &Entity {
@@ -115,13 +132,34 @@ impl EntityBase for WitherSkullEntity {
 
     fn on_hit(&self, hit: ProjectileHit) {
         let world = self.get_entity().world.load();
+        let hit_pos = hit.hit_pos();
 
         if let ProjectileHit::Entity { ref entity, .. } = hit {
             let difficulty = world.level_info.load().difficulty;
 
-            let _ = entity.damage(entity.as_ref(), 8.0, DamageType::WITHER_SKULL);
+            let owner = self.thrown.get_owner();
+            let was_hurt = owner
+                .as_deref()
+                .and_then(|owner| owner.get_living_entity().map(|living| (owner, living)))
+                .map_or_else(
+                    || entity.damage(entity.as_ref(), 5.0, DamageType::MAGIC),
+                    |(owner, living_owner)| {
+                        let was_hurt = entity.damage_with_context(
+                            entity.as_ref(),
+                            8.0,
+                            DamageType::WITHER_SKULL,
+                            Some(hit_pos),
+                            Some(self.get_entity()),
+                            Some(owner),
+                        );
+                        if was_hurt && !is_alive(entity.as_ref()) {
+                            living_owner.heal(5.0);
+                        }
+                        was_hurt
+                    },
+                );
 
-            if let Some(living) = entity.get_living_entity() {
+            if was_hurt && let Some(living) = entity.get_living_entity() {
                 let duration = match difficulty {
                     Difficulty::Hard => 800,   // 40 seconds
                     Difficulty::Normal => 200, // 10 seconds
@@ -147,7 +185,6 @@ impl EntityBase for WitherSkullEntity {
             }
         }
 
-        let hit_pos = hit.hit_pos();
         world.explode(hit_pos, 1.0, ExplosionInteraction::Mob);
     }
 }

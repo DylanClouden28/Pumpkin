@@ -1,6 +1,7 @@
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+use pumpkin_data::damage::DamageType;
 use pumpkin_data::item::Item;
 use pumpkin_data::item_stack::ItemStack;
 use pumpkin_nbt::compound::NbtCompound;
@@ -20,8 +21,20 @@ pub const MIN_CAMERA_DISTANCE_SQUARED: f32 = 12.25;
 pub const INITIAL_ACCELERATION_POWER: f64 = 0.1;
 pub const DEFLECTION_SCALE: f64 = 0.5;
 pub const DEFAULT_EXPLOSION_POWER: f32 = 1.0;
-pub const AIR_INERTIA: f64 = 0.95;
-pub const WATER_INERTIA: f64 = 0.8;
+pub const AIR_INERTIA: f32 = 0.95;
+pub const WATER_INERTIA: f32 = 0.8;
+
+/// Vanilla `DamageSources.fireball`: the damage type and cause of a fireball hit. An ownerless
+/// fireball is its own cause.
+#[must_use]
+pub fn fireball_damage_source<'a>(
+    fireball: &'a dyn EntityBase,
+    owner: Option<&'a dyn EntityBase>,
+) -> (DamageType, &'a dyn EntityBase) {
+    owner.map_or((DamageType::UNATTRIBUTED_FIREBALL, fireball), |owner| {
+        (DamageType::FIREBALL, owner)
+    })
+}
 
 pub struct FireballEntity {
     pub thrown: ThrownItemEntity,
@@ -38,6 +51,7 @@ impl FireballEntity {
             owner_id: None,
             collides_with_projectiles: false,
             has_hit: AtomicBool::new(false),
+            left_owner: AtomicBool::new(false),
             gravity: 0.0,
         };
 
@@ -75,6 +89,7 @@ impl FireballEntity {
             owner_id: None,
             collides_with_projectiles: false,
             has_hit: AtomicBool::new(false),
+            left_owner: AtomicBool::new(false),
             gravity: 0.0,
         };
         let vel = direction.normalize().multiply(
@@ -203,27 +218,12 @@ impl EntityBase for FireballEntity {
     }
 
     fn tick(&self, caller: &dyn EntityBase, _server: &Server) {
-        let entity = self.get_entity();
-        let mut velocity = entity.velocity.load();
-
-        let inertia = if entity.touching_water.load(Ordering::Relaxed) {
-            WATER_INERTIA
-        } else {
-            AIR_INERTIA
-        };
-
-        let accel = self.get_acceleration_power();
-        let speed = velocity.length();
-        if speed > 1e-6 {
-            let norm = velocity.normalize();
-            velocity = norm
-                .multiply(accel, accel, accel)
-                .add(&velocity)
-                .multiply(inertia, inertia, inertia);
-            entity.velocity.store(velocity);
-        }
-
-        self.thrown.process_tick(caller);
+        self.thrown.process_hurting_tick(
+            caller,
+            self.get_acceleration_power(),
+            AIR_INERTIA,
+            WATER_INERTIA,
+        );
     }
 
     fn get_entity(&self) -> &Entity {
@@ -240,17 +240,21 @@ impl EntityBase for FireballEntity {
 
     fn on_hit(&self, hit: ProjectileHit) {
         let world = self.get_entity().world.load();
+        let hit_pos = hit.hit_pos();
 
         if let ProjectileHit::Entity { ref entity, .. } = hit {
-            entity.get_entity().set_on_fire_for(5.0);
-            let _ = entity.damage(
+            let owner = self.thrown.get_owner();
+            let (damage_type, cause) = fireball_damage_source(self.get_entity(), owner.as_deref());
+            let _ = entity.damage_with_context(
                 entity.as_ref(),
                 6.0,
-                pumpkin_data::damage::DamageType::FIREBALL,
+                damage_type,
+                Some(hit_pos),
+                Some(self.get_entity()),
+                Some(cause),
             );
         }
 
-        let hit_pos = hit.hit_pos();
         let power = self.get_explosion_power();
         world.explode(hit_pos, power, crate::world::ExplosionInteraction::Mob);
     }

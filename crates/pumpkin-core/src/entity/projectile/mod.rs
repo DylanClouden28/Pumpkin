@@ -47,6 +47,19 @@ pub fn is_projectile(entity_type: &EntityType) -> bool {
         || *entity_type == EntityType::LLAMA_SPIT
 }
 
+/// Vanilla `isAlive`, including the `LivingEntity` override.
+fn is_alive(entity: &dyn EntityBase) -> bool {
+    entity.get_entity().is_alive()
+        && entity
+            .get_living_entity()
+            .is_none_or(|living| living.health.load() > 0.0)
+}
+
+/// Vanilla `Entity.canBeHitByProjectile`, with only the player's `isPickable` override ported.
+fn can_be_hit_by_projectile(entity: &dyn EntityBase) -> bool {
+    is_alive(entity) && !entity.is_spectator()
+}
+
 /// Helper to apply projectile spawned enchantment effects matching vanilla `Projectile::applyOnProjectileSpawned`.
 pub fn apply_on_projectile_spawned(
     projectile_entity: &Entity,
@@ -76,6 +89,8 @@ pub struct ThrownItemEntity {
     pub owner_id: Option<i32>,
     pub collides_with_projectiles: bool,
     pub has_hit: AtomicBool,
+    /// Vanilla `Projectile.leftOwner`, only tracked by hurting projectiles so far.
+    pub left_owner: AtomicBool,
     pub gravity: f64,
 }
 
@@ -89,6 +104,7 @@ impl ThrownItemEntity {
             owner_id: Some(owner.entity_id),
             collides_with_projectiles: false,
             has_hit: AtomicBool::new(false),
+            left_owner: AtomicBool::new(false),
             gravity,
         }
     }
@@ -137,9 +153,6 @@ impl ThrownItemEntity {
     /// Process a tick for projectile movement and collisions
     pub fn process_tick(&self, caller: &dyn EntityBase) {
         let entity = self.get_entity();
-        let world = entity.world.load();
-
-        entity.update_last_pos();
 
         // Apply gravity and inertia
         let mut velocity = entity.velocity.load();
@@ -155,6 +168,29 @@ impl ThrownItemEntity {
         // Store velocity
         entity.velocity.store(velocity);
 
+        self.move_and_collide(caller, false);
+    }
+
+    /// Vanilla `AbstractHurtingProjectile.tick`: no gravity or drag, `apply_inertia` replaces both.
+    pub fn process_hurting_tick(
+        &self,
+        caller: &dyn EntityBase,
+        acceleration_power: f64,
+        inertia: f32,
+        liquid_inertia: f32,
+    ) {
+        self.apply_inertia(acceleration_power, inertia, liquid_inertia);
+        self.move_and_collide(caller, true);
+        self.check_left_owner();
+    }
+
+    fn move_and_collide(&self, caller: &dyn EntityBase, hurting: bool) {
+        let entity = self.get_entity();
+        let world = entity.world.load();
+
+        entity.update_last_pos();
+
+        let velocity = entity.velocity.load();
         let start_pos = entity.pos.load();
         let delta = velocity;
 
@@ -211,9 +247,13 @@ impl ThrownItemEntity {
         }
 
         // Entity collisions
-        let candidates = world.get_entities_at_box(&search_box);
+        let candidates = if hurting {
+            world.get_all_at_box(&search_box)
+        } else {
+            world.get_entities_at_box(&search_box)
+        };
         for cand in candidates {
-            if self.should_skip_collision(entity, &cand) {
+            if self.should_skip_collision(entity, &cand, hurting) {
                 continue;
             }
 
@@ -255,14 +295,32 @@ impl ThrownItemEntity {
     }
 
     /// Returns if collision should be skipped (e.g. owner or projectile vs projectile)
-    fn should_skip_collision(&self, self_ent: &Entity, other: &Arc<dyn EntityBase>) -> bool {
+    fn should_skip_collision(
+        &self,
+        self_ent: &Entity,
+        other: &Arc<dyn EntityBase>,
+        hurting: bool,
+    ) -> bool {
         let other_ent = other.get_entity();
         if other_ent.entity_id == self_ent.entity_id {
             return true;
         }
 
-        // Skip owner for initial frames
-        if Some(other_ent.entity_id) == self.owner_id && self_ent.age.load(Ordering::Relaxed) < 5 {
+        if hurting {
+            // Vanilla `AbstractHurtingProjectile.canHitEntity` with `Projectile`'s owner check
+            if !can_be_hit_by_projectile(other.as_ref())
+                || other_ent.no_physics.load(Ordering::Relaxed)
+                || (!self.left_owner.load(Ordering::Relaxed)
+                    && self.get_owner().is_some_and(|owner| {
+                        owner.get_entity().is_passenger_of_same_vehicle(other_ent)
+                    }))
+            {
+                return true;
+            }
+        } else if Some(other_ent.entity_id) == self.owner_id
+            && self_ent.age.load(Ordering::Relaxed) < 5
+        {
+            // Skip owner for initial frames
             return true;
         }
 
@@ -277,6 +335,64 @@ impl ThrownItemEntity {
         }
 
         false
+    }
+
+    /// Vanilla `AbstractHurtingProjectile.applyInertia`.
+    fn apply_inertia(&self, acceleration_power: f64, inertia: f32, liquid_inertia: f32) {
+        let entity = self.get_entity();
+        let movement = entity.velocity.load();
+        let inertia = if entity.touching_water.load(Ordering::Relaxed) {
+            liquid_inertia
+        } else {
+            inertia
+        };
+        entity
+            .velocity
+            .store((movement + movement.normalize() * acceleration_power) * f64::from(inertia));
+    }
+
+    /// Vanilla `Projectile.checkLeftOwner`.
+    fn check_left_owner(&self) {
+        if !self.left_owner.load(Ordering::Relaxed) && self.is_outside_owner_collision_range() {
+            self.left_owner.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Vanilla `Projectile.isOutsideOwnerCollisionRange`, without the `CAN_BE_PICKED` filter
+    /// (`can_hit` is false for players).
+    fn is_outside_owner_collision_range(&self) -> bool {
+        let Some(owner) = self.get_owner() else {
+            return true;
+        };
+        let movement = self.entity.velocity.load();
+        let aabb = self
+            .entity
+            .bounding_box
+            .load()
+            .expand_towards(movement.x, movement.y, movement.z)
+            .expand_all(1.0);
+        let mut self_and_passengers = vec![owner.get_entity().get_root_vehicle().unwrap_or(owner)];
+        while let Some(next) = self_and_passengers.pop() {
+            let next_entity = next.get_entity();
+            if aabb.intersects(&next_entity.bounding_box.load()) {
+                return false;
+            }
+            self_and_passengers.extend(
+                next_entity
+                    .passengers
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .iter()
+                    .cloned(),
+            );
+        }
+        true
+    }
+
+    /// Vanilla `Projectile.getOwner`.
+    fn get_owner(&self) -> Option<Arc<dyn EntityBase>> {
+        self.owner_id
+            .and_then(|id| self.entity.world.load().get_entity_by_id(id))
     }
 
     const fn get_entity(&self) -> &Entity {

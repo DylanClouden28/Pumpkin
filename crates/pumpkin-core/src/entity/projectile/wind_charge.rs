@@ -23,6 +23,9 @@ use crate::{
 
 const DEFAULT_DEFLECT_COOLDOWN: u8 = 5;
 pub const WIND_CHARGE_GRAVITY: f64 = 0.0;
+/// Vanilla `AbstractWindCharge` never speeds up or slows down, not even in water.
+const ACCELERATION_POWER: f64 = 0.0;
+const INERTIA: f32 = 1.0;
 
 enum WindChargeKind {
     Normal { deflect_cooldown: AtomicU8 },
@@ -120,7 +123,8 @@ impl EntityBase for WindChargeEntity {
     }
 
     fn tick(&self, caller: &dyn EntityBase, _server: &Server) {
-        self.thrown_item_entity.process_tick(caller);
+        self.thrown_item_entity
+            .process_hurting_tick(caller, ACCELERATION_POWER, INERTIA, INERTIA);
 
         if let Some(cooldown) = self.deflect_cooldown() {
             let cooldown_ticks = cooldown.load(Ordering::Relaxed);
