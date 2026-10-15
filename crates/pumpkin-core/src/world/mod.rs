@@ -5773,7 +5773,45 @@ impl World {
     }
 
     pub fn sync_global_world_event(&self, world_event: WorldEvent, position: BlockPos, data: i32) {
-        self.broadcast_packet_all(&CWorldEvent::new(world_event as i32, position, data, true));
+        if self.level_info.load().game_rules.global_sound_events {
+            // Vanilla `ServerLevel.globalLevelEvent`: far players get it 32 blocks away, players in
+            // other dimensions at their own position.
+            const GLOBAL_EVENT_DISTANCE: f64 = 32.0;
+            if let Some(server) = self.server.upgrade() {
+                let center = position.to_centered_f64();
+                server.for_each_player(|player| {
+                    let player_pos = player.position();
+                    let sound_pos = if std::ptr::eq(player.world().as_ref(), self) {
+                        if player_pos.squared_distance_to_vec(&center)
+                            < GLOBAL_EVENT_DISTANCE * GLOBAL_EVENT_DISTANCE
+                        {
+                            center
+                        } else {
+                            player_pos + (center - player_pos).normalize() * GLOBAL_EVENT_DISTANCE
+                        }
+                    } else {
+                        player_pos
+                    };
+                    player.try_send_client_packet(&CWorldEvent::new(
+                        world_event as i32,
+                        BlockPos::floored_v(sound_pos),
+                        data,
+                        true,
+                    ));
+                });
+            }
+        } else {
+            // Vanilla `ServerLevel.levelEvent`: strictly within 64 blocks of the block's corner.
+            let origin = position.0.to_f64();
+            let players = self.players.load();
+            let recipients = players
+                .iter()
+                .filter(|player| player.position().squared_distance_to_vec(&origin) < 64.0 * 64.0);
+            Self::broadcast_java_grouped(
+                &CWorldEvent::new(world_event as i32, position, data, false),
+                Self::collect_java_recipients_by_version(recipients),
+            );
+        }
     }
 
     pub fn set_block_destroy_stage(&self, entity_id: i32, location: BlockPos, stage: i8) {
