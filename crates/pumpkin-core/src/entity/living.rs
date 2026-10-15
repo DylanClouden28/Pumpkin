@@ -3364,7 +3364,10 @@ impl EntityBase for LivingEntity {
         let in_death_animation = self.health.load() <= 0.0 && self.death_time.load(Relaxed) < 20;
         let is_player = self.entity.entity_type == &EntityType::PLAYER;
         if (is_alive || in_death_animation) && !is_player {
-            self.tick_movement(caller);
+            // `EnderDragon.aiStep` replaces `LivingEntity.aiStep`, so the dragon never travels.
+            if self.entity.entity_type != &EntityType::ENDER_DRAGON {
+                self.tick_movement(caller);
+            }
             // Vanilla-like order: freeze logic runs after movement/collisions.
             self.entity.tick_frozen(caller);
         } else if is_alive {
@@ -3595,6 +3598,10 @@ impl EntityBase for LivingEntity {
                 }
                 // Players remain part of the world until their client requests a
                 // respawn. Removing one here breaks reconnecting while dead.
+                return;
+            }
+            // Vanilla `EnderDragon.tickDeath` runs its own 200 tick death and removes the dragon.
+            if self.entity.entity_type == &EntityType::ENDER_DRAGON {
                 return;
             }
             // Vanilla `LivingEntity.tickDeath` sends the POOF (60) particle event

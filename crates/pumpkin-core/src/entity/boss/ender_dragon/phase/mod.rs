@@ -1,34 +1,36 @@
-use crate::entity::boss::ender_dragon::EnderDragonEntity;
+use crate::entity::ai::pathfinder::path::Path;
+use crate::entity::boss::ender_dragon::{CENTER_RING_START, EnderDragonEntity, INNER_RING_START};
+use pumpkin_data::damage::DamageType;
 use pumpkin_util::math::vector3::Vector3;
-use std::sync::Arc;
+use std::ops::RangeInclusive;
 
-mod charging;
-mod circling;
+mod charging_player;
 mod dying;
-mod fly_to_portal;
-mod hovering;
+mod holding_pattern;
+mod hover;
 mod landing;
 mod landing_approach;
-mod sit_attacking;
-mod sit_breathing;
-mod strafing;
-mod taking_off;
+mod sitting_attacking;
+mod sitting_flaming;
+mod sitting_scanning;
+mod strafe_player;
+mod takeoff;
 
-pub use charging::ChargingPhase;
-pub use circling::CirclingPhase;
+pub use charging_player::ChargingPlayerPhase;
 pub use dying::DyingPhase;
-pub use fly_to_portal::FlyToPortalPhase;
-pub use hovering::HoveringPhase;
+pub use holding_pattern::HoldingPatternPhase;
+pub use hover::HoverPhase;
 pub use landing::LandingPhase;
 pub use landing_approach::LandingApproachPhase;
-pub use sit_attacking::SitAttackingPhase;
-pub use sit_breathing::SitBreathingPhase;
-pub use strafing::StrafingPhase;
-pub use taking_off::TakingOffPhase;
+pub use sitting_attacking::SittingAttackingPhase;
+pub use sitting_flaming::SittingFlamingPhase;
+pub use sitting_scanning::SittingScanningPhase;
+pub use strafe_player::StrafePlayerPhase;
+pub use takeoff::TakeoffPhase;
 
+/// Vanilla `DragonPhaseInstance`.
 pub trait Phase: Send + Sync {
-    fn get_type(&self) -> EnderDragonPhase;
-    fn tick(&self, dragon: &EnderDragonEntity);
+    fn do_server_tick(&self, dragon: &EnderDragonEntity);
     fn begin(&self, _dragon: &EnderDragonEntity) {}
     fn end(&self, _dragon: &EnderDragonEntity) {}
     fn is_sitting(&self) -> bool {
@@ -37,81 +39,124 @@ pub trait Phase: Send + Sync {
     fn get_fly_speed(&self) -> f32 {
         0.6
     }
-    fn get_turn_speed(&self) -> f32 {
-        0.1
+    fn get_turn_speed(&self, dragon: &EnderDragonEntity) -> f32 {
+        let rot_speed = dragon.horizontal_speed() + 1.0;
+        let dist = rot_speed.min(40.0);
+        0.7 / dist / rot_speed
     }
     fn get_fly_target_location(&self) -> Option<Vector3<f64>> {
         None
     }
+    fn on_hurt(&self, _damage_type: DamageType, damage: f32) -> f32 {
+        damage
+    }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+/// Vanilla `EnderDragonPhase` ids, which the client reads from the dragon's phase data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EnderDragonPhase {
-    #[default]
-    Circling = 0,
-    Strafing = 1,
-    Charging = 2,
-    FlyToPortal = 3,
-    LandingApproach = 4,
-    Landing = 5,
-    SitAttacking = 6,
-    SitBreathing = 7,
-    TakingOff = 8,
-    Hovering = 9,
-    Dying = 10,
+    HoldingPattern = 0,
+    StrafePlayer = 1,
+    LandingApproach = 2,
+    Landing = 3,
+    Takeoff = 4,
+    SittingFlaming = 5,
+    SittingScanning = 6,
+    SittingAttacking = 7,
+    ChargingPlayer = 8,
+    Dying = 9,
+    Hover = 10,
 }
 
 impl EnderDragonPhase {
-    #[must_use]
-    pub const fn is_sitting(self) -> bool {
-        matches!(
-            self,
-            Self::LandingApproach
-                | Self::Landing
-                | Self::SitAttacking
-                | Self::SitBreathing
-                | Self::TakingOff
-        )
-    }
-
     #[must_use]
     pub const fn network_id(self) -> i32 {
         self as i32
     }
 }
 
-pub struct PhaseManager {
-    phases: [Arc<dyn Phase>; 11],
-}
+/// Vanilla's squared distances within which a phase keeps its fly target.
+pub const TARGET_DIST_SQR_RANGE: RangeInclusive<f64> = 100.0..=22500.0;
 
-impl Default for PhaseManager {
-    fn default() -> Self {
-        Self::new()
-    }
+/// Holds one instance of every phase, vanilla `EnderDragonPhaseManager`.
+#[derive(Default)]
+pub struct PhaseManager {
+    pub holding_pattern: HoldingPatternPhase,
+    pub strafe_player: StrafePlayerPhase,
+    pub landing_approach: LandingApproachPhase,
+    pub landing: LandingPhase,
+    pub takeoff: TakeoffPhase,
+    pub sitting_flaming: SittingFlamingPhase,
+    pub sitting_scanning: SittingScanningPhase,
+    pub sitting_attacking: SittingAttackingPhase,
+    pub charging_player: ChargingPlayerPhase,
+    pub dying: DyingPhase,
+    pub hover: HoverPhase,
 }
 
 impl PhaseManager {
     #[must_use]
-    pub fn new() -> Self {
-        Self {
-            phases: [
-                Arc::new(CirclingPhase),
-                Arc::new(StrafingPhase),
-                Arc::new(ChargingPhase),
-                Arc::new(FlyToPortalPhase),
-                Arc::new(LandingApproachPhase),
-                Arc::new(LandingPhase),
-                Arc::new(SitAttackingPhase),
-                Arc::new(SitBreathingPhase),
-                Arc::new(TakingOffPhase),
-                Arc::new(HoveringPhase),
-                Arc::new(DyingPhase),
-            ],
+    pub fn get_phase(&self, phase: EnderDragonPhase) -> &dyn Phase {
+        match phase {
+            EnderDragonPhase::HoldingPattern => &self.holding_pattern,
+            EnderDragonPhase::StrafePlayer => &self.strafe_player,
+            EnderDragonPhase::LandingApproach => &self.landing_approach,
+            EnderDragonPhase::Landing => &self.landing,
+            EnderDragonPhase::Takeoff => &self.takeoff,
+            EnderDragonPhase::SittingFlaming => &self.sitting_flaming,
+            EnderDragonPhase::SittingScanning => &self.sitting_scanning,
+            EnderDragonPhase::SittingAttacking => &self.sitting_attacking,
+            EnderDragonPhase::ChargingPlayer => &self.charging_player,
+            EnderDragonPhase::Dying => &self.dying,
+            EnderDragonPhase::Hover => &self.hover,
         }
     }
+}
 
-    #[must_use]
-    pub fn get_phase(&self, phase_type: EnderDragonPhase) -> Arc<dyn Phase> {
-        self.phases[phase_type as usize].clone()
+/// Vanilla `AbstractDragonSittingPhase.onHurt`; tridents are arrows in vanilla.
+#[must_use]
+pub fn sitting_on_hurt(damage_type: DamageType, damage: f32) -> f32 {
+    if damage_type == DamageType::ARROW
+        || damage_type == DamageType::TRIDENT
+        || damage_type == DamageType::WIND_CHARGE
+    {
+        0.0
+    } else {
+        damage
+    }
+}
+
+/// Vanilla `navigateToNextPathNode`.
+pub fn navigate_to_next_path_node(
+    path: &mut Option<Path>,
+    target_location: &mut Option<Vector3<f64>>,
+) {
+    if let Some(path) = path
+        && let Some(current) = path.get_next_node_pos()
+    {
+        path.advance();
+        *target_location = Some(Vector3::new(
+            f64::from(current.0.x),
+            random_node_y(current.0.y),
+            f64::from(current.0.z),
+        ));
+    }
+}
+
+/// Vanilla `node.y + nextFloat() * 20` in float precision; its retry loop never repeats.
+#[must_use]
+pub fn random_node_y(node_y: i32) -> f64 {
+    f64::from(node_y as f32 + rand::random::<f32>() * 20.0)
+}
+
+/// Vanilla wraps a node index into the outer ring (0..12) or the inner ring (12..20).
+#[must_use]
+pub const fn wrap_node_index(index: i32, outer_ring: bool) -> usize {
+    let inner_start = INNER_RING_START as i32;
+    if outer_ring {
+        index.rem_euclid(inner_start) as usize
+    } else {
+        ((index - inner_start).rem_euclid(CENTER_RING_START as i32 - inner_start) + inner_start)
+            as usize
     }
 }

@@ -939,6 +939,37 @@ pub trait Mob: EntityBase + Send + Sync {
         )
     }
 
+    /// Damages this mob. The default runs the hooks below around the living damage; mobs whose
+    /// vanilla class overrides `hurtServer` override this instead.
+    fn mob_damage_with_context(
+        &self,
+        caller: &dyn EntityBase,
+        amount: f32,
+        damage_type: DamageType,
+        position: Option<Vector3<f64>>,
+        source: Option<&dyn EntityBase>,
+        cause: Option<&dyn EntityBase>,
+    ) -> bool {
+        // pre_damage hook: allows mobs to dodge/cancel damage (e.g. enderman projectile dodge)
+        if !self.pre_damage(damage_type, source) {
+            return false;
+        }
+        // Mob-specific damage modifier (e.g. shulker armor when closed).
+        let amount = self.modify_incoming_damage(amount, damage_type);
+        let damaged = self.get_mob_entity().living_entity.damage_with_context(
+            caller,
+            amount,
+            damage_type,
+            position,
+            source,
+            cause,
+        );
+        if damaged {
+            self.on_damage(damage_type, source);
+        }
+        damaged
+    }
+
     /// Called before damage is applied. Return `false` to cancel the damage entirely.
     /// Used by endermen to dodge projectiles via teleportation.
     fn pre_damage(&self, _damage_type: DamageType, _source: Option<&dyn EntityBase>) -> bool {
@@ -1419,7 +1450,11 @@ impl<T: Mob + Send + 'static> EntityBase for T {
         // Piglin timers, `tick_sensors`, admiring, dancing (conversion already checks NoAI)
         // Bee and ZombifiedPiglin `update_persistent_anger` (Enderman, Wolf, IronGolem and
         // PolarBear run it outside the AI step, so the shared call stays for them).
-        if !mob_entity.is_no_ai() {
+        //
+        // The dragon has no `serverAiStep`: `EnderDragon.aiStep` replaces `LivingEntity.aiStep`.
+        if !mob_entity.is_no_ai()
+            && mob_entity.living_entity.entity.entity_type != &EntityType::ENDER_DRAGON
+        {
             mob_entity.server_ai_step(self, caller);
         }
 
@@ -1444,24 +1479,7 @@ impl<T: Mob + Send + 'static> EntityBase for T {
         source: Option<&dyn EntityBase>,
         cause: Option<&dyn EntityBase>,
     ) -> bool {
-        // pre_damage hook: allows mobs to dodge/cancel damage (e.g. enderman projectile dodge)
-        if !self.pre_damage(damage_type, source) {
-            return false;
-        }
-        // Mob-specific damage modifier (e.g. shulker armor when closed).
-        let amount = self.modify_incoming_damage(amount, damage_type);
-        let damaged = self.get_mob_entity().living_entity.damage_with_context(
-            caller,
-            amount,
-            damage_type,
-            position,
-            source,
-            cause,
-        );
-        if damaged {
-            self.on_damage(damage_type, source);
-        }
-        damaged
+        self.mob_damage_with_context(caller, amount, damage_type, position, source, cause)
     }
 
     fn interact(&self, player: &Arc<Player>, item_stack: &mut ItemStack) -> bool {

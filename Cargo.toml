@@ -259,7 +259,6 @@ notify = { version = "8.2.0", default-features = false, features = ["macos_fseve
 
 sysinfo = { version = "0.38", default-features = false, features = ["system"] }
 rustc_version_runtime = { version = "0.3", default-features = false }
-ordered-float = { version = "5.4", default-features = false, features = ["std"] }
 xxhash-rust = { version = "0.8", default-features = false, features = ["xxh64"] }
 
 # Temporary pin to the approved implementation of Component Model sync reentry:

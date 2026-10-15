@@ -59,7 +59,7 @@ impl DragonFireballEntity {
         thrown
             .entity
             .velocity
-            .store(direction.normalize().multiply(accel, accel, accel));
+            .store(direction.vanilla_normalize().multiply(accel, accel, accel));
         Self { thrown }
     }
 

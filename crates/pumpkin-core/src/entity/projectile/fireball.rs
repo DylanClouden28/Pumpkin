@@ -175,14 +175,12 @@ pub fn apply_inertia(entity: &Entity, acceleration_power: f64) -> Vector3<f64> {
     } else {
         AIR_INERTIA
     };
-    if velocity.length() > 1e-6 {
-        velocity = velocity
-            .normalize()
-            .multiply(acceleration_power, acceleration_power, acceleration_power)
-            .add(&velocity)
-            .multiply(inertia, inertia, inertia);
-        entity.velocity.store(velocity);
-    }
+    velocity = velocity
+        .vanilla_normalize()
+        .multiply(acceleration_power, acceleration_power, acceleration_power)
+        .add(&velocity)
+        .multiply(inertia, inertia, inertia);
+    entity.velocity.store(velocity);
     velocity
 }
 
