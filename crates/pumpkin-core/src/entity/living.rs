@@ -3212,7 +3212,9 @@ impl LivingEntity {
                 self.get_pitch(),
             );
 
-            if let Some(source) = source {
+            if let Some(source) = source
+                && !damage_type.has_tag(&tag::DamageType::MINECRAFT_NO_KNOCKBACK)
+            {
                 let source_pos = source.get_entity().pos.load();
                 let target_pos = self.entity.pos.load();
                 let dx = source_pos.x - target_pos.x;
