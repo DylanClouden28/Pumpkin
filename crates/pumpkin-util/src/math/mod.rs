@@ -136,6 +136,58 @@ pub const fn squared_magnitude(a: f64, b: f64, c: f64) -> f64 {
     c.mul_add(c, a.mul_add(a, b * b))
 }
 
+/// `Mth.FRAC_BIAS`, `2^44`.
+const FRAC_BIAS: f64 = f64::from_bits(4_805_340_802_404_319_232);
+
+/// `Mth.ASIN_TAB` and `Mth.COS_TAB` use fdlibm for Java's `StrictMath` results.
+static ASIN_COS_TAB: LazyLock<[(f64, f64); 257]> = LazyLock::new(|| {
+    std::array::from_fn(|i| {
+        let asin = libm::asin(i as f64 / 256.0);
+        (asin, libm::cos(asin))
+    })
+});
+
+/// Vanilla `Mth.atan2`, a table approximation that differs from `f64::atan2` in the last bits.
+#[must_use]
+pub fn atan2(mut y: f64, mut x: f64) -> f64 {
+    let d2 = x * x + y * y;
+    if d2.is_nan() {
+        return f64::NAN;
+    }
+    let neg_y = y < 0.0;
+    if neg_y {
+        y = -y;
+    }
+    let neg_x = x < 0.0;
+    if neg_x {
+        x = -x;
+    }
+    let steep = y > x;
+    if steep {
+        std::mem::swap(&mut x, &mut y);
+    }
+    let rinv = fast_inv_sqrt(d2);
+    x *= rinv;
+    y *= rinv;
+    let yp = FRAC_BIAS + y;
+    // Java's `(int) Double.doubleToRawLongBits(yp)`: the low bits hold the table index.
+    let (phi, c_phi) = ASIN_COS_TAB[yp.to_bits() as i32 as usize];
+    let s_phi = yp - FRAC_BIAS;
+    let sd = y * c_phi - x * s_phi;
+    let d = (6.0 + sd * sd) * sd * 0.166_666_666_666_666_66;
+    let mut theta = phi + d;
+    if steep {
+        theta = std::f64::consts::FRAC_PI_2 - theta;
+    }
+    if neg_x {
+        theta = std::f64::consts::PI - theta;
+    }
+    if neg_y {
+        theta = -theta;
+    }
+    theta
+}
+
 #[inline]
 #[must_use]
 pub fn fast_inv_sqrt(value: f64) -> f64 {

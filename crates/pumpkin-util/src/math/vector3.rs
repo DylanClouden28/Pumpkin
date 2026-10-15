@@ -121,6 +121,17 @@ impl Vector3<f64> {
 
         Self::new(-cos_pitch * sin_yaw, -sin_pitch, cos_pitch * cos_yaw)
     }
+
+    /// Vanilla `Vec3.normalize`, which divides where `normalize` multiplies by the reciprocal.
+    #[must_use]
+    pub fn vanilla_normalize(&self) -> Self {
+        let dist = self.length();
+        if dist < f64::from(1.0E-5f32) {
+            Self::new(0.0, 0.0, 0.0)
+        } else {
+            Self::new(self.x / dist, self.y / dist, self.z / dist)
+        }
+    }
 }
 
 impl<T: Math + PartialOrd + Copy> Vector3<T> {
