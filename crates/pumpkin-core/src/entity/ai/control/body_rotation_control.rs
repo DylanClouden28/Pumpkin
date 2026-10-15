@@ -31,14 +31,16 @@ impl BodyRotationControl {
             Self::rotate_head_if_necessary(mob);
             self.last_stable_y_head_rot = entity.head_yaw.load();
             self.head_stable_time = 0;
-        } else if (entity.head_yaw.load() - self.last_stable_y_head_rot).abs() > 15.0 {
-            self.head_stable_time = 0;
-            self.last_stable_y_head_rot = entity.head_yaw.load();
-            Self::rotate_body_if_necessary(mob);
-        } else {
-            self.head_stable_time += 1;
-            if self.head_stable_time > 10 {
-                self.rotate_head_towards_front(mob);
+        } else if Self::not_carrying_mob_passengers(mob) {
+            if (entity.head_yaw.load() - self.last_stable_y_head_rot).abs() > 15.0 {
+                self.head_stable_time = 0;
+                self.last_stable_y_head_rot = entity.head_yaw.load();
+                Self::rotate_body_if_necessary(mob);
+            } else {
+                self.head_stable_time += 1;
+                if self.head_stable_time > 10 {
+                    self.rotate_head_towards_front(mob);
+                }
             }
         }
     }
@@ -75,10 +77,21 @@ impl BodyRotationControl {
         ));
     }
 
+    fn not_carrying_mob_passengers(mob: &dyn Mob) -> bool {
+        mob.get_mob_entity()
+            .living_entity
+            .entity
+            .passengers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .first()
+            .is_none_or(|passenger| passenger.get_mob().is_none())
+    }
+
     fn is_moving(mob: &dyn Mob) -> bool {
         let entity = &mob.get_mob_entity().living_entity.entity;
-        let vel = entity.velocity.load();
-        vel.x * vel.x + vel.z * vel.z > 2.500_000_3e-7
+        let delta = entity.pos.load() - entity.last_pos.load();
+        delta.x * delta.x + delta.z * delta.z > f64::from(2.500_000_3e-7f32)
     }
 }
 
