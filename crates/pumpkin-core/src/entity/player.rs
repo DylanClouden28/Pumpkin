@@ -6627,6 +6627,14 @@ impl Player {
                 .try_lock()
                 .ok()
                 .and_then(|mut advancements| {
+                    // Vanilla unregisters a done advancement's trigger listeners.
+                    if advancements
+                        .progress
+                        .get_mut_or_start_progress(advancement)
+                        .is_done()
+                    {
+                        return None;
+                    }
                     let player = advancements.player.upgrade()?;
                     let result = advancements.award(advancement, criterion);
                     Some((player, result))
